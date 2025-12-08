@@ -70,6 +70,29 @@ final class SwiftFetchTests: XCTestCase {
 
         XCTAssertEqual(user, User(id: 1, name: "Ada"))
     }
+
+    func testMultipartBuilderProducesContentTypeAndBoundary() {
+        var form = MultipartFormData(boundary: "Boundary-TEST")
+        form.addField(name: "name", value: "alice")
+        form.addData(
+            name: "file",
+            filename: "hello.txt",
+            mimeType: "text/plain",
+            data: Data("hi".utf8)
+        )
+
+        let result = form.build()
+        XCTAssertTrue(result.contentType.contains("multipart/form-data"))
+        XCTAssertTrue(result.contentType.contains("Boundary-TEST"))
+
+        let bodyString = String(data: result.data, encoding: .utf8)!
+        XCTAssertTrue(bodyString.contains("Content-Disposition: form-data; name=\"name\""))
+        XCTAssertTrue(bodyString.contains("alice"))
+        XCTAssertTrue(bodyString.contains("filename=\"hello.txt\""))
+        XCTAssertTrue(bodyString.contains("Content-Type: text/plain"))
+        XCTAssertTrue(bodyString.contains("hi"))
+        XCTAssertTrue(bodyString.contains("--Boundary-TEST--"))
+    }
 }
 
 final class MockURLProtocol: URLProtocol {

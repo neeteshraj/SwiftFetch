@@ -7,13 +7,14 @@ SwiftFetch is a lightweight networking helper built on top of `URLSession` and S
 - Typed HTTP method support and request/response wrappers
 - Async/await networking using `URLSession`
 - JSON decoding helper with consistent error mapping
+- Multipart form-data builder for file uploads
 - Test-friendly design via injectable `URLSession`
 
 ## Installation
 Add SwiftFetch to your `Package.swift` dependencies:
 ```swift
 dependencies: [
-    .package(url: "https://github.com/your-org/SwiftFetch.git", from: "1.0.0")
+    .package(url: "https://github.com/neeteshraj/SwiftFetch.git", from: "1.0.0")
 ]
 ```
 Then add `SwiftFetch` to your target:
@@ -38,6 +39,26 @@ struct User: Decodable {
 }
 
 let users: [User] = try await SwiftFetch.getJSON("/users")
+
+// Multipart upload example
+var form = MultipartFormData()
+form.addField(name: "description", value: "Profile picture")
+form.addData(
+    name: "file",
+    filename: "avatar.jpg",
+    mimeType: "image/jpeg",
+    data: Data(/* file bytes */)
+)
+
+let (body, contentType) = form.build()
+let uploadRequest = FetchRequest(
+    url: URL(string: "/upload")!,
+    method: .post,
+    headers: ["Content-Type": contentType],
+    body: body
+)
+let response = try await SwiftFetch.client.perform(uploadRequest)
+print("Upload status:", response.statusCode)
 ```
 
 ## License
