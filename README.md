@@ -1,14 +1,18 @@
 # SwiftFetch
 
-SwiftFetch is a lightweight networking helper built on top of `URLSession` and Swift Concurrency. It offers a small facade for configuring a base URL, composing requests, and decoding JSON with sensible error handling.
+SwiftFetch is a lightweight, production-ready networking helper built on `URLSession` and Swift Concurrency. It gives you a simple facade to configure a base URL, compose requests, decode JSON, and handle multipart uploads with clear, typed errors.
 
 ## Features
 - Base URL configuration with default headers
-- Typed HTTP method support and request/response wrappers
-- Async/await networking using `URLSession`
+- Typed HTTP method and request/response wrappers
+- Async/await networking on top of `URLSession`
 - JSON decoding helper with consistent error mapping
 - Multipart form-data builder for file uploads
 - Test-friendly design via injectable `URLSession`
+
+## Requirements
+- Swift 5.9+
+- iOS 15+, macOS 12+, tvOS 15+, watchOS 8+
 
 ## Installation
 Add SwiftFetch to your `Package.swift` dependencies:
@@ -27,20 +31,52 @@ Then add `SwiftFetch` to your target:
 )
 ```
 
-## Usage Example
+## Usage Examples
+
+### Configure once
 ```swift
 import SwiftFetch
 
-SwiftFetch.configure(baseURL: URL(string: "https://api.example.com")!)
+SwiftFetch.configure(
+    baseURL: URL(string: "https://api.example.com")!,
+    defaultHeaders: ["Authorization": "Bearer <token>"]
+)
+```
 
+### GET JSON
+```swift
 struct User: Decodable {
     let id: Int
     let name: String
 }
 
-let users: [User] = try await SwiftFetch.getJSON("/users")
+let users: [User] = try await SwiftFetch.getJSON(
+    "/users",
+    query: ["limit": "20"]
+)
+```
 
-// Multipart upload example
+### POST JSON
+```swift
+struct CreateUser: Encodable { let name: String }
+struct CreatedUser: Decodable { let id: Int; let name: String }
+
+let payload = CreateUser(name: "Ada")
+let body = try JSONEncoder().encode(payload)
+
+let request = FetchRequest(
+    url: URL(string: "/users")!,
+    method: .post,
+    headers: ["Content-Type": "application/json"],
+    body: body
+)
+
+let response = try await SwiftFetch.client.perform(request)
+let created = try SwiftFetch.client.decodeJSON(CreatedUser.self, from: response)
+```
+
+### Multipart upload
+```swift
 var form = MultipartFormData()
 form.addField(name: "description", value: "Profile picture")
 form.addData(
@@ -57,9 +93,16 @@ let uploadRequest = FetchRequest(
     headers: ["Content-Type": contentType],
     body: body
 )
-let response = try await SwiftFetch.client.perform(uploadRequest)
-print("Upload status:", response.statusCode)
+
+let uploadResponse = try await SwiftFetch.client.perform(uploadRequest)
+print("Upload status:", uploadResponse.statusCode)
 ```
+
+## Troubleshooting
+- **Relative URL without base:** Call `SwiftFetch.configure` with a base URL before sending relative paths, or `FetchError.invalidURL` is thrown.
+- **Non-2xx status:** `FetchError.statusCode(_, data:)` includes the response body to help diagnose server errors.
+- **Decoding failures:** `FetchError.decodingFailed` wraps the decoder error—log it to see the exact mismatch.
+- **Custom sessions:** Inject a custom `URLSession` via `FetchClient.Configuration` to add caching, auth handling, or `URLProtocol` stubs for testing.
 
 ## License
 MIT License
