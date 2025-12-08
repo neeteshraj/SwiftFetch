@@ -8,9 +8,18 @@ public enum SwiftFetch {
     /// - Parameters:
     ///   - baseURL: The base endpoint used for relative request paths.
     ///   - defaultHeaders: Headers merged into every request unless overridden.
-    public static func configure(baseURL: URL, defaultHeaders: [String: String] = [:]) {
+    ///   - retryPolicy: Optional retry behavior; disabled by default.
+    public static func configure(
+        baseURL: URL,
+        defaultHeaders: [String: String] = [:],
+        retryPolicy: FetchClient.RetryPolicy = .init()
+    ) {
         sharedClient = FetchClient(
-            configuration: .init(baseURL: baseURL, defaultHeaders: defaultHeaders)
+            configuration: .init(
+                baseURL: baseURL,
+                defaultHeaders: defaultHeaders,
+                retryPolicy: retryPolicy
+            )
         )
     }
 

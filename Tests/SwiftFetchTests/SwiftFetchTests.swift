@@ -5,14 +5,17 @@ import XCTest
 final class SwiftFetchTests: XCTestCase {
     private let baseURL = URL(string: "https://api.example.com")!
 
-    private func makeClient() -> FetchClient {
+    private func makeClient(
+        retryPolicy: FetchClient.RetryPolicy = .init()
+    ) -> FetchClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let config = FetchClient.Configuration(
             baseURL: baseURL,
             defaultHeaders: ["X-Default": "1"],
-            session: session
+            session: session,
+            retryPolicy: retryPolicy
         )
         return FetchClient(configuration: config)
     }
@@ -123,6 +126,67 @@ final class SwiftFetchTests: XCTestCase {
             XCTFail("Expected decoding failure")
         } catch FetchError.decodingFailed {
             // expected
+        } catch {
+            XCTFail("Unexpected error \(error)")
+        }
+    }
+
+    func testRetriesWhenEnabledForRetryableStatus() async throws {
+        var attempts = 0
+        let policy = FetchClient.RetryPolicy(
+            isEnabled: true,
+            maxRetries: 2,
+            initialBackoff: 0,
+            backoffMultiplier: 1,
+            retryableStatusCodes: [503],
+            retryableURLErrorCodes: []
+        )
+        let client = makeClient(retryPolicy: policy)
+
+        MockURLProtocol.requestHandler = { request in
+            attempts += 1
+            let url = request.url!
+            if attempts < 3 {
+                let response = HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil)!
+                return (response, Data("down".utf8))
+            } else {
+                let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data("ok".utf8))
+            }
+        }
+
+        let request = FetchRequest(url: URL(string: "/ping")!)
+        let response = try await client.perform(request)
+
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(attempts, 3, "Should retry twice before succeeding")
+    }
+
+    func testDoesNotRetryWhenDisabled() async {
+        var attempts = 0
+        let policy = FetchClient.RetryPolicy(
+            isEnabled: false,
+            maxRetries: 3,
+            initialBackoff: 0,
+            backoffMultiplier: 1,
+            retryableStatusCodes: [503],
+            retryableURLErrorCodes: []
+        )
+        let client = makeClient(retryPolicy: policy)
+
+        MockURLProtocol.requestHandler = { request in
+            attempts += 1
+            let url = request.url!
+            let response = HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil)!
+            return (response, Data("down".utf8))
+        }
+
+        let request = FetchRequest(url: URL(string: "/ping")!)
+        do {
+            _ = try await client.perform(request)
+            XCTFail("Expected status code error")
+        } catch FetchError.statusCode {
+            XCTAssertEqual(attempts, 1, "Should not retry when disabled")
         } catch {
             XCTFail("Unexpected error \(error)")
         }

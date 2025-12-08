@@ -2,6 +2,45 @@ import Foundation
 
 /// A lightweight HTTP client built on top of `URLSession` with async/await.
 public struct FetchClient {
+    /// Retry behavior configuration for `FetchClient`.
+    public struct RetryPolicy {
+        /// Enables or disables retries. When `false`, requests run once.
+        public var isEnabled: Bool
+        /// Maximum number of retry attempts (not counting the initial try).
+        public var maxRetries: Int
+        /// Initial backoff delay in seconds before the first retry.
+        public var initialBackoff: TimeInterval
+        /// Multiplicative factor applied to the delay after each retry.
+        public var backoffMultiplier: Double
+        /// Status codes that are considered retryable.
+        public var retryableStatusCodes: Set<Int>
+        /// `URLError` codes that should be retried.
+        public var retryableURLErrorCodes: Set<URLError.Code>
+
+        public init(
+            isEnabled: Bool = false,
+            maxRetries: Int = 2,
+            initialBackoff: TimeInterval = 0.2,
+            backoffMultiplier: Double = 2.0,
+            retryableStatusCodes: Set<Int> = [429, 500, 502, 503, 504],
+            retryableURLErrorCodes: Set<URLError.Code> = [
+                .timedOut,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .networkConnectionLost,
+                .notConnectedToInternet,
+                .dnsLookupFailed
+            ]
+        ) {
+            self.isEnabled = isEnabled
+            self.maxRetries = maxRetries
+            self.initialBackoff = initialBackoff
+            self.backoffMultiplier = backoffMultiplier
+            self.retryableStatusCodes = retryableStatusCodes
+            self.retryableURLErrorCodes = retryableURLErrorCodes
+        }
+    }
+
     /// Immutable configuration for a `FetchClient`.
     public struct Configuration {
         /// The base URL used when requests specify a relative path.
@@ -10,15 +49,19 @@ public struct FetchClient {
         public var defaultHeaders: [String: String]
         /// The underlying session, useful for testing via `URLProtocol` injection.
         public var session: URLSession
+        /// Optional retry policy; disabled by default.
+        public var retryPolicy: RetryPolicy
 
         public init(
             baseURL: URL? = nil,
             defaultHeaders: [String: String] = [:],
-            session: URLSession = .shared
+            session: URLSession = .shared,
+            retryPolicy: RetryPolicy = .init()
         ) {
             self.baseURL = baseURL
             self.defaultHeaders = defaultHeaders
             self.session = session
+            self.retryPolicy = retryPolicy
         }
     }
 
@@ -46,19 +89,22 @@ public struct FetchClient {
             urlRequest.setValue(value, forHTTPHeaderField: key)
         }
 
-        do {
-            let (data, response) = try await configuration.session.data(for: urlRequest)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw FetchError.invalidResponse
+        let policy = configuration.retryPolicy
+        var attempt = 0
+
+        while true {
+            do {
+                return try await performOnce(urlRequest)
+            } catch let error as FetchError {
+                guard shouldRetry(error: error, attempt: attempt, policy: policy) else {
+                    throw error
+                }
+                attempt += 1
+                let delay = backoffNanoseconds(forAttempt: attempt, policy: policy)
+                if delay > 0 {
+                    try await Task.sleep(nanoseconds: delay)
+                }
             }
-            guard (200...299).contains(httpResponse.statusCode) else {
-                throw FetchError.statusCode(httpResponse.statusCode, data: data)
-            }
-            return FetchResponse(data: data, response: httpResponse)
-        } catch let error as FetchError {
-            throw error
-        } catch {
-            throw FetchError.requestFailed(underlying: error)
         }
     }
 
@@ -110,6 +156,47 @@ public struct FetchClient {
         }
 
         return finalURL
+    }
+
+    /// Executes the HTTP request once and maps errors into `FetchError`.
+    private func performOnce(_ urlRequest: URLRequest) async throws -> FetchResponse {
+        do {
+            let (data, response) = try await configuration.session.data(for: urlRequest)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw FetchError.invalidResponse
+            }
+            guard (200...299).contains(httpResponse.statusCode) else {
+                throw FetchError.statusCode(httpResponse.statusCode, data: data)
+            }
+            return FetchResponse(data: data, response: httpResponse)
+        } catch let error as FetchError {
+            throw error
+        } catch {
+            throw FetchError.requestFailed(underlying: error)
+        }
+    }
+
+    private func shouldRetry(error: FetchError, attempt: Int, policy: RetryPolicy) -> Bool {
+        guard policy.isEnabled, attempt < policy.maxRetries else { return false }
+
+        switch error {
+        case let .statusCode(code, _):
+            return policy.retryableStatusCodes.contains(code)
+        case let .requestFailed(underlying):
+            if let urlError = underlying as? URLError {
+                return policy.retryableURLErrorCodes.contains(urlError.code)
+            }
+            return false
+        default:
+            return false
+        }
+    }
+
+    private func backoffNanoseconds(forAttempt attempt: Int, policy: RetryPolicy) -> UInt64 {
+        guard policy.initialBackoff > 0 else { return 0 }
+        let exponent = max(Double(attempt - 1), 0)
+        let seconds = policy.initialBackoff * pow(policy.backoffMultiplier, exponent)
+        return UInt64(seconds * 1_000_000_000)
     }
 }
 

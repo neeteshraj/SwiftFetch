@@ -8,6 +8,7 @@ SwiftFetch is a lightweight, production-ready networking helper built on `URLSes
 - Async/await networking on top of `URLSession`
 - JSON decoding helper with consistent error mapping
 - Multipart form-data builder for file uploads
+- Opt-in retry policy with backoff
 - Test-friendly design via injectable `URLSession`
 
 ## Requirements
@@ -73,6 +74,19 @@ let request = FetchRequest(
 
 let response = try await SwiftFetch.client.perform(request)
 let created = try SwiftFetch.client.decodeJSON(CreatedUser.self, from: response)
+```
+
+### Enable retries (opt-in)
+```swift
+SwiftFetch.configure(
+    baseURL: URL(string: "https://api.example.com")!,
+    retryPolicy: .init(
+        isEnabled: true,
+        maxRetries: 2,
+        initialBackoff: 0.2,
+        backoffMultiplier: 2.0
+    )
+)
 ```
 
 ### Multipart upload
