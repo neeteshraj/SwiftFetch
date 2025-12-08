@@ -71,6 +71,94 @@ final class SwiftFetchTests: XCTestCase {
         XCTAssertEqual(user, User(id: 1, name: "Ada"))
     }
 
+    func testNon200StatusThrowsStatusCode() async {
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            let url = request.url!
+            let data = Data("nope".utf8)
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 404,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, data)
+        }
+
+        let request = FetchRequest(url: URL(string: "/missing")!)
+        do {
+            _ = try await client.perform(request)
+            XCTFail("Expected status code error")
+        } catch let FetchError.statusCode(code, data) {
+            XCTAssertEqual(code, 404)
+            XCTAssertEqual(String(data: data ?? Data(), encoding: .utf8), "nope")
+        } catch {
+            XCTFail("Unexpected error \(error)")
+        }
+    }
+
+    func testDecodingFailureMapsError() async throws {
+        struct User: Decodable {
+            let id: Int
+            let name: String
+        }
+
+        let client = makeClient()
+        MockURLProtocol.requestHandler = { request in
+            let url = request.url!
+            let data = Data(#"{"id": "abc"}"#.utf8) // missing name and wrong type
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, data)
+        }
+
+        let request = FetchRequest(url: URL(string: "/user")!)
+        let response = try await client.perform(request)
+        do {
+            _ = try client.decodeJSON(User.self, from: response)
+            XCTFail("Expected decoding failure")
+        } catch FetchError.decodingFailed {
+            // expected
+        } catch {
+            XCTFail("Unexpected error \(error)")
+        }
+    }
+
+    func testQueryParametersMergeWithExisting() async throws {
+        let client = makeClient()
+        let invoked = expectation(description: "handler invoked")
+
+        MockURLProtocol.requestHandler = { request in
+            invoked.fulfill()
+            guard let url = request.url,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  let items = components.queryItems else {
+                throw FetchError.invalidURL
+            }
+
+            let dict = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value) })
+            XCTAssertEqual(dict["existing"], "1")
+            XCTAssertEqual(dict["q"], "swift")
+            XCTAssertEqual(dict["page"], "2")
+
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data())
+        }
+
+        let request = FetchRequest(url: URL(string: "/search?existing=1")!)
+        _ = try await client.perform(request, query: ["q": "swift", "page": "2"])
+        await fulfillment(of: [invoked], timeout: 1.0)
+    }
+
     func testMultipartBuilderProducesContentTypeAndBoundary() {
         var form = MultipartFormData(boundary: "Boundary-TEST")
         form.addField(name: "name", value: "alice")
