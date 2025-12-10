@@ -1,5 +1,9 @@
 # SwiftFetch
 
+<p align="center">
+  <img src="Assets/SwiftFetch.png" alt="SwiftFetch logo" width="200">
+</p>
+
 SwiftFetch is a lightweight, production-ready networking helper built on `URLSession` and Swift Concurrency. It gives you a simple facade to configure a base URL, compose requests, decode JSON, and handle multipart uploads with clear, typed errors.
 
 ## Features
