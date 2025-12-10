@@ -36,28 +36,50 @@ public struct MultipartFormData {
 
     /// Build the final multipart body and corresponding `Content-Type` header value.
     public func build() -> (data: Data, contentType: String) {
+        let segments = makeSegments()
         var body = Data()
+        for segment in segments {
+            body.append(segment)
+        }
+        return (body, contentTypeHeader)
+    }
+
+    /// Build a streaming multipart body to avoid buffering the entire payload at once.
+    public func buildStream() -> (stream: InputStream, contentType: String, contentLength: Int64) {
+        let segments = makeSegments()
+        let length = segments.reduce(into: Int64(0)) { partial, data in
+            partial += Int64(data.count)
+        }
+        let stream = MultipartBodyStream(segments: segments)
+        return (stream, contentTypeHeader, length)
+    }
+
+    private var contentTypeHeader: String {
+        "multipart/form-data; boundary=\(boundary)"
+    }
+
+    private func makeSegments() -> [Data] {
+        var segments: [Data] = []
         let lineBreak = "\r\n"
         for part in parts {
-            body.append("--\(boundary)\(lineBreak)")
+            var header = Data()
+            header.append("--\(boundary)\(lineBreak)")
             var disposition = "Content-Disposition: form-data; name=\"\(part.name)\""
             if let filename = part.filename {
                 disposition += "; filename=\"\(filename)\""
             }
-            body.append("\(disposition)\(lineBreak)")
-
+            header.append("\(disposition)\(lineBreak)")
             if let mimeType = part.mimeType {
-                body.append("Content-Type: \(mimeType)\(lineBreak)")
+                header.append("Content-Type: \(mimeType)\(lineBreak)")
             }
-
-            body.append(lineBreak)
-            body.append(part.data)
-            body.append(lineBreak)
+            header.append(lineBreak)
+            segments.append(header)
+            segments.append(part.data)
+            segments.append(Data(lineBreak.utf8))
         }
-        body.append("--\(boundary)--\(lineBreak)")
-
-        let contentType = "multipart/form-data; boundary=\(boundary)"
-        return (body, contentType)
+        let closing = "--\(boundary)--\(lineBreak)"
+        segments.append(Data(closing.utf8))
+        return segments
     }
 }
 
@@ -66,6 +88,79 @@ private extension Data {
         if let data = string.data(using: .utf8) {
             append(data)
         }
+    }
+}
+
+/// Simple `InputStream` that reads sequential `Data` segments.
+private final class MultipartBodyStream: InputStream {
+    private let segments: [Data]
+    private var segmentIndex: Int = 0
+    private var offset: Int = 0
+    private var statusValue: Stream.Status = .notOpen
+
+    init(segments: [Data]) {
+        self.segments = segments
+        super.init(data: Data())
+    }
+
+    override var hasBytesAvailable: Bool {
+        switch statusValue {
+        case .notOpen, .open, .reading:
+            return segmentIndex < segments.count
+        default:
+            return false
+        }
+    }
+
+    override var streamStatus: Stream.Status {
+        statusValue
+    }
+
+    override func open() {
+        guard statusValue == .notOpen else { return }
+        statusValue = .open
+    }
+
+    override func close() {
+        statusValue = .closed
+    }
+
+    override func read(_ buffer: UnsafeMutablePointer<UInt8>, maxLength len: Int) -> Int {
+        if statusValue == .notOpen {
+            open()
+        }
+        guard hasBytesAvailable else {
+            statusValue = .atEnd
+            return 0
+        }
+        statusValue = .reading
+
+        var bytesCopied = 0
+        while bytesCopied < len && segmentIndex < segments.count {
+            let segment = segments[segmentIndex]
+            let remaining = segment.count - offset
+            let toCopy = min(len - bytesCopied, remaining)
+            segment.copyBytes(to: buffer.advanced(by: bytesCopied), from: offset..<(offset + toCopy))
+            bytesCopied += toCopy
+            offset += toCopy
+
+            if offset >= segment.count {
+                segmentIndex += 1
+                offset = 0
+            }
+        }
+
+        if segmentIndex >= segments.count {
+            statusValue = .atEnd
+        } else {
+            statusValue = .open
+        }
+
+        return bytesCopied
+    }
+
+    override func getBuffer(_ buffer: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>, length len: UnsafeMutablePointer<Int>) -> Bool {
+        false
     }
 }
 

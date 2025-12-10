@@ -7,9 +7,16 @@ SwiftFetch is a lightweight, production-ready networking helper built on `URLSes
 - Typed HTTP method and request/response wrappers
 - Async/await networking on top of `URLSession`
 - JSON decoding helper with consistent error mapping
+- Nested JSON decoding via key path or transform
 - Multipart form-data builder for file uploads
+- Streaming multipart builder for large payloads
 - Opt-in retry policy with backoff
+- Optional jitter and custom retry decision hook
+- Interceptor pipeline with lightweight logging helper
+- Default query params plus per-request timeout/cache overrides
+- Metrics hook for timing without dependencies
 - Test-friendly design via injectable `URLSession`
+- Included `MockFetchClient` for unit tests
 
 ## Requirements
 - Swift 5.9+
@@ -62,18 +69,10 @@ let users: [User] = try await SwiftFetch.getJSON(
 struct CreateUser: Encodable { let name: String }
 struct CreatedUser: Decodable { let id: Int; let name: String }
 
-let payload = CreateUser(name: "Ada")
-let body = try JSONEncoder().encode(payload)
-
-let request = FetchRequest(
-    url: URL(string: "/users")!,
-    method: .post,
-    headers: ["Content-Type": "application/json"],
-    body: body
+let created: CreatedUser = try await SwiftFetch.postJSON(
+    "/users",
+    body: CreateUser(name: "Ada")
 )
-
-let response = try await SwiftFetch.client.perform(request)
-let created = try SwiftFetch.client.decodeJSON(CreatedUser.self, from: response)
 ```
 
 ### Enable retries (opt-in)
@@ -84,8 +83,18 @@ SwiftFetch.configure(
         isEnabled: true,
         maxRetries: 2,
         initialBackoff: 0.2,
-        backoffMultiplier: 2.0
+        backoffMultiplier: 2.0,
+        jitterRange: 0.8...1.2
     )
+)
+```
+
+### Interceptors (logging example)
+```swift
+let logger = LoggingInterceptor()
+SwiftFetch.configure(
+    baseURL: URL(string: "https://api.example.com")!,
+    interceptors: [logger]
 )
 ```
 

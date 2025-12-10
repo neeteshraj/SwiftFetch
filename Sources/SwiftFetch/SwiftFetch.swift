@@ -12,13 +12,19 @@ public enum SwiftFetch {
     public static func configure(
         baseURL: URL,
         defaultHeaders: [String: String] = [:],
-        retryPolicy: FetchClient.RetryPolicy = .init()
+        defaultQuery: [String: String] = [:],
+        retryPolicy: FetchClient.RetryPolicy = .init(),
+        interceptors: [FetchInterceptor] = [],
+        metricsHandler: ((URLRequest, FetchResponse?, FetchError?, TimeInterval) -> Void)? = nil
     ) {
         sharedClient = FetchClient(
             configuration: .init(
                 baseURL: baseURL,
                 defaultHeaders: defaultHeaders,
-                retryPolicy: retryPolicy
+                defaultQuery: defaultQuery,
+                retryPolicy: retryPolicy,
+                interceptors: interceptors,
+                metricsHandler: metricsHandler
             )
         )
     }
@@ -40,6 +46,61 @@ public enum SwiftFetch {
         let request = FetchRequest(url: url, method: .get, headers: headers, body: nil)
         let response = try await sharedClient.perform(request, query: query)
         return try sharedClient.decodeJSON(T.self, from: response, decoder: decoder)
+    }
+
+    /// Perform a POST request with an `Encodable` body and decode a JSON response.
+    public static func postJSON<Body: Encodable, T: Decodable>(
+        _ path: String,
+        body: Body,
+        query: [String: String]? = nil,
+        headers: [String: String] = [:],
+        encoder: JSONEncoder = JSONEncoder(),
+        decoder: JSONDecoder = JSONDecoder()
+    ) async throws -> T {
+        try await sendJSON(path, method: .post, body: body, query: query, headers: headers, encoder: encoder, decoder: decoder)
+    }
+
+    /// Perform a PUT request with an `Encodable` body and decode a JSON response.
+    public static func putJSON<Body: Encodable, T: Decodable>(
+        _ path: String,
+        body: Body,
+        query: [String: String]? = nil,
+        headers: [String: String] = [:],
+        encoder: JSONEncoder = JSONEncoder(),
+        decoder: JSONDecoder = JSONDecoder()
+    ) async throws -> T {
+        try await sendJSON(path, method: .put, body: body, query: query, headers: headers, encoder: encoder, decoder: decoder)
+    }
+
+    private static func sendJSON<Body: Encodable, T: Decodable>(
+        _ path: String,
+        method: HTTPMethod,
+        body: Body,
+        query: [String: String]? = nil,
+        headers: [String: String],
+        encoder: JSONEncoder,
+        decoder: JSONDecoder
+    ) async throws -> T {
+        let url = URL(string: path) ?? URL(fileURLWithPath: path)
+        do {
+            let payload = try encoder.encode(body)
+            var mergedHeaders = headers
+            if mergedHeaders["Content-Type"] == nil {
+                mergedHeaders["Content-Type"] = "application/json"
+            }
+            let request = FetchRequest(
+                url: url,
+                method: method,
+                headers: mergedHeaders,
+                body: payload
+            )
+            let response = try await sharedClient.perform(request, query: query)
+            return try sharedClient.decodeJSON(T.self, from: response, decoder: decoder)
+        } catch let error as FetchError {
+            throw error
+        } catch {
+            throw FetchError.encodingFailed(underlying: error)
+        }
     }
 
     /// Access the underlying shared client for advanced scenarios.

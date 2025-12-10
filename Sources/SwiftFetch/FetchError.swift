@@ -10,7 +10,11 @@ public enum FetchError: Error {
     case statusCode(Int, data: Data?)
     /// The underlying transport or session failed before a response was produced.
     case requestFailed(underlying: Error)
+    /// Encoding the outbound payload failed.
+    case encodingFailed(underlying: Error)
     /// JSON decoding failed for the expected response type.
     case decodingFailed(underlying: Error)
+    /// A nested JSON key path could not be resolved.
+    case missingKeyPath([String])
 }
 
