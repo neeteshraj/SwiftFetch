@@ -45,17 +45,7 @@ Then add `SwiftFetch` to your target:
 
 ## Usage Examples
 
-### Configure once (global helper)
-```swift
-import SwiftFetch
-
-SwiftFetch.configure(
-    baseURL: URL(string: "https://api.example.com")!,
-    defaultHeaders: ["Authorization": "Bearer <token>"]
-)
-```
-
-### Prefer instance-based usage (no singleton)
+### Configure once (instance-based)
 ```swift
 import SwiftFetch
 

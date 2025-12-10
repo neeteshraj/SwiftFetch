@@ -246,6 +246,7 @@ final class SwiftFetchTests: XCTestCase {
         await fulfillment(of: [invoked], timeout: 1.0)
     }
 
+
     func testMultipartBuilderProducesContentTypeAndBoundary() {
         var form = MultipartFormData(boundary: "Boundary-TEST")
         form.addField(name: "name", value: "alice")
