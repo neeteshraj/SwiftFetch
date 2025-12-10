@@ -45,7 +45,7 @@ Then add `SwiftFetch` to your target:
 
 ## Usage Examples
 
-### Configure once
+### Configure once (global helper)
 ```swift
 import SwiftFetch
 
@@ -53,6 +53,18 @@ SwiftFetch.configure(
     baseURL: URL(string: "https://api.example.com")!,
     defaultHeaders: ["Authorization": "Bearer <token>"]
 )
+```
+
+### Prefer instance-based usage (no singleton)
+```swift
+import SwiftFetch
+
+let api = FetchService(
+    baseURL: URL(string: "https://api.example.com")!,
+    defaultHeaders: ["Authorization": "Bearer <token>"]
+)
+
+let users: [User] = try await api.getJSON("/users")
 ```
 
 ### GET JSON
@@ -96,7 +108,7 @@ SwiftFetch.configure(
 ### Interceptors (logging example)
 ```swift
 let logger = LoggingInterceptor()
-SwiftFetch.configure(
+let api = FetchService(
     baseURL: URL(string: "https://api.example.com")!,
     interceptors: [logger]
 )

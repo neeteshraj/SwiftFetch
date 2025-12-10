@@ -223,6 +223,29 @@ final class SwiftFetchTests: XCTestCase {
         await fulfillment(of: [invoked], timeout: 1.0)
     }
 
+    func testFetchServiceUsesBaseForRelativePath() async throws {
+        struct Empty: Decodable {}
+        let client = makeClient()
+        let service = FetchService(client: client)
+        let invoked = expectation(description: "handler invoked")
+
+        MockURLProtocol.requestHandler = { request in
+            invoked.fulfill()
+            XCTAssertEqual(request.url?.absoluteString, "https://api.example.com/users")
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data("{}".utf8))
+        }
+
+        let _: Empty = try await service.getJSON("users")
+        await fulfillment(of: [invoked], timeout: 1.0)
+    }
+
     func testMultipartBuilderProducesContentTypeAndBoundary() {
         var form = MultipartFormData(boundary: "Boundary-TEST")
         form.addField(name: "name", value: "alice")

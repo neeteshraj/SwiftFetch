@@ -14,4 +14,14 @@
 ### Changed
 - `FetchError` now includes `encodingFailed` and `missingKeyPath` for clearer failure reporting.
 
+## 1.1.0
+### Added
+- `FetchService`: an instance-based facade over `FetchClient` for dependency injection and multi-environment apps; avoids global singleton mutation.
+- `SwiftFetch.makeService(...)`: convenience factory to create isolated services without touching global state.
+- README guidance for instance-first usage and interceptor setup without singletons.
+- Test coverage ensuring relative string paths resolve against the configured base URL.
+
+### Fixed
+- Relative path handling no longer falls back to `file://`; paths like `"users"` now respect the configured `baseURL`.
+
 
